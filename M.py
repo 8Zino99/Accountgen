@@ -4,11 +4,12 @@ import requests
 from loguru import logger
 from anticaptchaofficial.funcaptchaproxyless import funcaptchaProxyless
 from datetime import datetime
+import time
 
 website_url = "https://auth.roblox.com/v2/signup"
 
-def get_xsrf_token():
-    response = requests.post("https://auth.roblox.com/v2/login", headers={"X-CSRF-TOKEN": ""})
+def get_xsrf_token(session):
+    response = session.post("https://auth.roblox.com/v2/login", headers={"X-CSRF-TOKEN": ""})
     xsrf_token = response.headers.get('x-csrf-token')
     if xsrf_token:
         logger.debug(f'csrf-token: {xsrf_token}')
@@ -17,7 +18,7 @@ def get_xsrf_token():
         logger.error("Failed to fetch X-Csrf-Token")
         return None
 
-def get_field_data(csrf_token):
+def get_field_data(session, csrf_token):
     headers = {
         'authority': 'auth.roblox.com',
         'x-csrf-token': csrf_token,
@@ -25,7 +26,7 @@ def get_field_data(csrf_token):
         'content-type': 'application/json;charset=UTF-8',
         'accept': 'application/json, text/plain, */*',
     }
-    response = requests.post('https://auth.roblox.com/v2/signup', headers=headers, json={})
+    response = session.post('https://auth.roblox.com/v2/signup', headers=headers, json={})
     if response.ok:
         return response.json()["failureDetails"][0]["fieldData"]
     else:
@@ -63,13 +64,13 @@ def generate_birthday():
     year = str(random.randint(1980, 2006))
     return f"{day} {month} {year}"
 
-def create_account(username, password):
-    csrf_token = get_xsrf_token()
+def create_account(session, username, password):
+    csrf_token = get_xsrf_token(session)
     if not csrf_token:
         logger.error("Failed to get X-Csrf-Token")
         return None
 
-    field_data = get_field_data(csrf_token)
+    field_data = get_field_data(session, csrf_token)
     if not field_data:
         logger.error("Failed to get field data")
         return None
@@ -105,17 +106,16 @@ def create_account(username, password):
         'accept': 'application/json, text/plain, */*',
     }
 
-    with requests.session() as session:
-        response = session.post(website_url, json=registration_payload, headers=headers)
-        if response.ok:
-            logger.success('Successful Registration!')
-            return username, password, birthday, response.cookies
-        else:
-            logger.error('Failed Registration!')
-            logger.debug(response.headers)
-            logger.debug(response.text)
-            logger.debug(response.status_code)
-            return None
+    response = session.post(website_url, json=registration_payload, headers=headers)
+    if response.ok:
+        logger.success('Successful Registration!')
+        return username, password, birthday, response.cookies
+    else:
+        logger.error('Failed Registration!')
+        logger.debug(response.headers)
+        logger.debug(response.text)
+        logger.debug(response.status_code)
+        return None
 
 def send_to_discord(webhook_url, message):
     data = {"content": message}
@@ -133,16 +133,18 @@ def main():
         return
 
     with open('acc.txt', 'w') as file:
-        for _ in range(num_accounts):
-            username = f"user{random.randint(10000, 99999)}"
-            password = f"pass{random.randint(10000, 99999)}"
-            account = create_account(username, password)
-            if account:
-                username, password, birthday, _ = account
-                date_created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                country = "USA"  # Example country, you may want to use an actual IP geolocation service
-                account_info = f"_______________\nUsername: {username}\nPassword: {password}\nDate: {date_created}\nCountry: {country}\n_______________\n"
-                file.write(account_info)
+        with requests.Session() as session:
+            for _ in range(num_accounts):
+                username = f"user{random.randint(10000, 99999)}"
+                password = f"pass{random.randint(10000, 99999)}"
+                account = create_account(session, username, password)
+                if account:
+                    username, password, birthday, _ = account
+                    date_created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    country = "USA"  # Example country, you may want to use an actual IP geolocation service
+                    account_info = f"_______________\nUsername: {username}\nPassword: {password}\nDate: {date_created}\nCountry: {country}\n_______________\n"
+                    file.write(account_info)
+                    time.sleep(1)  # To avoid rate limiting
 
     with open('acc.txt', 'r') as file:
         content = file.read()
